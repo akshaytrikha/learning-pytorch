@@ -132,3 +132,5 @@ def train(
         results["train_acc"].append(train_acc)
         results["dev_loss"].append(dev_loss)
         results["dev_acc"].append(dev_acc)
+
+    return results

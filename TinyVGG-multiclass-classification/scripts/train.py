@@ -6,14 +6,16 @@ import torchmetrics
 from pathlib import Path
 import os
 import data, model, engine, utils
+import pandas as pd
+
 
 MODEL_NAME = "TinyVGG Food Classification 23-03-11 #1"
 RANDOM_SEED = 100
-NUM_WORKERS = os.cpu_count() - 1
+NUM_WORKERS = os.cpu_count()
 
 # hyperparameterse
 NUM_BATCHES = 32
-NUM_EPOCHS = 10
+NUM_EPOCHS = 100
 HIDDEN_UNITS = 10
 LEARNING_RATE = 0.001
 
@@ -24,6 +26,15 @@ device = device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # data augmentation
 augment = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
+
+# Create a transforms pipeline manually (required for torchvision < 0.13)
+manual_transforms = transforms.Compose(
+    [
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ]
+)
 
 # fetch data if doesn't exist
 data.fetch_data()
@@ -43,8 +54,9 @@ loss_fn = nn.CrossEntropyLoss()
 optimizer = torch.optim.SGD(params=model.parameters(), lr=LEARNING_RATE)
 accuracy_fn = torchmetrics.Accuracy(task="multiclass", num_classes=NUM_CLASSES)
 
+
 # train model
-engine.train(
+training_results = engine.train(
     model,
     train_dataloader,
     dev_dataloader,
@@ -57,3 +69,8 @@ engine.train(
 
 # save model
 utils.save_model(model, MODEL_NAME)
+
+# save training results
+pd.DataFrame(training_results).to_csv(
+    Path(f"./models/{MODEL_NAME}/{MODEL_NAME}_training.csv"), index_label="epoch"
+)
