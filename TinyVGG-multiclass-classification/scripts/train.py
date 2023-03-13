@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torchvision
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import torchmetrics
@@ -9,14 +10,13 @@ import data, model, engine, utils
 import pandas as pd
 
 
-MODEL_NAME = "TinyVGG Food Classification 23-03-11 #1"
+MODEL_NAME = "EfficientNet_B0 23_03_11"
 RANDOM_SEED = 100
 NUM_WORKERS = os.cpu_count()
 
 # hyperparameterse
 NUM_BATCHES = 32
 NUM_EPOCHS = 100
-HIDDEN_UNITS = 10
 LEARNING_RATE = 0.001
 
 TRAIN_DIR = Path("./data/train")
@@ -24,11 +24,9 @@ DEV_DIR = Path("./data/test")
 
 device = device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# data augmentation
-augment = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
 
-# Create a transforms pipeline manually (required for torchvision < 0.13)
-manual_transforms = transforms.Compose(
+# ------------------ Data ------------------
+transform = transforms.Compose(
     [
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -39,21 +37,32 @@ manual_transforms = transforms.Compose(
 # fetch data if doesn't exist
 data.fetch_data()
 train_dataloader, dev_dataloader, class_names = data.create_dataloaders(
-    train_dir=TRAIN_DIR, dev_dir=DEV_DIR, batch_size=NUM_BATCHES, transform=augment
+    train_dir=TRAIN_DIR, dev_dir=DEV_DIR, batch_size=NUM_BATCHES, transform=transform
 )
 NUM_CLASSES = len(class_names)
 
-# instantiate model
-torch.manual_seed(RANDOM_SEED)
-model = model.PizzaSteakSushiClassifier(
-    input_shape=3, hidden_units=HIDDEN_UNITS, output_shape=NUM_CLASSES
-)
+# ------------------ Model ------------------
+# instantiate pretrained model
+weights = torchvision.models.EfficientNet_B0_Weights.DEFAULT
+model = torchvision.models.efficientnet_b0(weights=weights).to(device)
 
+# freeze base layers
+for param in model.features.parameters():
+    param.requires_grad = False
+
+torch.manual_seed = RANDOM_SEED
+
+# modify classifier layer for number of classes
+model.classifier = nn.Sequential(
+    torch.nn.Dropout(p=0.2, inplace=True),
+    nn.Linear(in_features=1280, out_features=NUM_CLASSES),
+).to(device)
+
+# ------------------ Training ------------------
 # define loss, optimizer, accuracy
 loss_fn = nn.CrossEntropyLoss()
 optimizer = torch.optim.SGD(params=model.parameters(), lr=LEARNING_RATE)
 accuracy_fn = torchmetrics.Accuracy(task="multiclass", num_classes=NUM_CLASSES)
-
 
 # train model
 training_results = engine.train(
