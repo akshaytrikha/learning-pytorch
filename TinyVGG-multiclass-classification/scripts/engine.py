@@ -4,7 +4,7 @@ from torch import nn
 from torch.optim import Optimizer
 from torchmetrics import Accuracy
 from tqdm.auto import tqdm
-from typing import Dict, List, Tuple
+from typing import Tuple
 
 
 def train_step(

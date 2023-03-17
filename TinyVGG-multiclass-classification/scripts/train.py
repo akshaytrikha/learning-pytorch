@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 import torchvision
-from torch.utils.data import DataLoader
 from torchvision import transforms
 import torchmetrics
 from pathlib import Path
