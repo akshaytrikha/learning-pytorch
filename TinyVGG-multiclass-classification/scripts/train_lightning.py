@@ -1,39 +1,113 @@
 import torch
 from torch import nn
-from lightning.pytorch import Trainer, seed_everything
-from lightning.pytorch.callbacks.early_stopping import EarlyStopping
-import torchvision
 from torchvision import transforms
-import torchmetrics
+from torchmetrics import Accuracy
+import lightning.pytorch as pl
+from lightning.pytorch.callbacks import EarlyStopping
+from pytorch_lightning.loggers import WandbLogger
 from pathlib import Path
-import os
-import data, model, engine, utils
-import pandas as pd
 
-
-MODEL_NAME = "EfficientNet_B0 23_03_11"
-RANDOM_SEED = 100
-NUM_WORKERS = os.cpu_count()
-
-# hyperparameterse
-NUM_BATCHES = 32
-NUM_EPOCHS = 100
-LEARNING_RATE = 0.001
+import data
 
 TRAIN_DIR = Path("./data/train")
 DEV_DIR = Path("./data/test")
 
-device = device = "cuda" if torch.cuda.is_available() else "cpu"
+device = device = "mps" if torch.backends.mps.is_available() else "cpu"
+
+# hyperparameterse
+NUM_BATCHES = 32
+NUM_EPOCHS = 10
+LEARNING_RATE = 0.001
+HIDDEN_UNITS = 10
+
+
+class LightningPizzaSteakSushiClassifier(pl.LightningModule):
+    def __init__(self, input_shape: int, hidden_units: int, output_shape: int):
+        super().__init__()
+
+        # loss function
+        self.loss_fn = nn.CrossEntropyLoss()
+
+        # tracking
+        self.validation_step_outputs = []
+
+        # layers
+        self.conv_block_1 = nn.Sequential(
+            nn.Conv2d(
+                in_channels=input_shape,
+                out_channels=hidden_units,
+                kernel_size=3,
+                stride=1,
+                padding=0,
+            ),
+            nn.ReLU(),
+            nn.Conv2d(
+                in_channels=hidden_units,
+                out_channels=hidden_units,
+                kernel_size=3,
+                stride=1,
+                padding=0,
+            ),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+        )
+
+        self.conv_block_2 = nn.Sequential(
+            nn.Conv2d(
+                in_channels=hidden_units,
+                out_channels=hidden_units,
+                kernel_size=3,
+                padding=0,
+            ),
+            nn.ReLU(),
+            nn.Conv2d(
+                in_channels=hidden_units,
+                out_channels=hidden_units,
+                kernel_size=3,
+                padding=0,
+            ),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(in_features=hidden_units * 13 * 13, out_features=output_shape),
+        )
+
+    def forward(self, x: torch.Tensor):
+        return self.classifier(self.conv_block_2(self.conv_block_1(x)))
+
+    def configure_optimizers(self):
+        return torch.optim.SGD(params=self.parameters(), lr=LEARNING_RATE)
+
+    def training_step(self, batch, batch_idx):
+        # training_step defines the train loop.
+        # it is independent of forward
+        x, y = batch
+
+        y_hat = self(x)
+
+        loss = self.loss_fn(y_hat, y)
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+
+        y_hat = self(x)
+
+        loss = self.loss_fn(y_hat, y)
+
+        self.validation_step_outputs += [loss]
+
+        self.log("val_loss", loss.detach())
+
+        return {"val_loss": loss}
 
 
 # ------------------ Data ------------------
-transform = transforms.Compose(
-    [
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ]
-)
+transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
 
 # fetch data if doesn't exist
 data.fetch_data()
@@ -42,45 +116,23 @@ train_dataloader, dev_dataloader, class_names = data.create_dataloaders(
 )
 NUM_CLASSES = len(class_names)
 
+
 # ------------------ Model ------------------
-# instantiate pretrained model
-weights = torchvision.models.EfficientNet_B0_Weights.DEFAULT
-model = torchvision.models.efficientnet_b0(weights=weights).to(device)
-
-# freeze base layers
-for param in model.features.parameters():
-    param.requires_grad = False
-
-torch.manual_seed = RANDOM_SEED
-
-# modify classifier layer for number of classes
-model.classifier = nn.Sequential(
-    torch.nn.Dropout(p=0.2, inplace=True),
-    nn.Linear(in_features=1280, out_features=NUM_CLASSES),
-).to(device)
+model = LightningPizzaSteakSushiClassifier(
+    input_shape=3, hidden_units=HIDDEN_UNITS, output_shape=NUM_CLASSES
+)
 
 # ------------------ Training ------------------
-# define loss, optimizer, accuracy
-loss_fn = nn.CrossEntropyLoss()
-optimizer = torch.optim.SGD(params=model.parameters(), lr=LEARNING_RATE)
-accuracy_fn = torchmetrics.Accuracy(task="multiclass", num_classes=NUM_CLASSES)
-
-# train model
-training_results = engine.train(
-    model,
-    train_dataloader,
-    dev_dataloader,
-    loss_fn,
-    optimizer,
-    accuracy_fn,
-    NUM_EPOCHS,
-    device,
+early_stop_callback = EarlyStopping(
+    monitor="val_loss", min_delta=0.00, patience=1, verbose=False, mode="min"
 )
-
-# save model
-utils.save_model(model, MODEL_NAME)
-
-# save training results
-pd.DataFrame(training_results).to_csv(
-    Path(f"./models/{MODEL_NAME}/{MODEL_NAME}_training.csv"), index_label="epoch"
+trainer = pl.Trainer(
+    max_epochs=NUM_EPOCHS,
+    accelerator=device,
+    check_val_every_n_epoch=1,
+    logger=WandbLogger(),
+    callbacks=[early_stop_callback],
 )
+trainer.fit(model, train_dataloader)
+
+breakpoint()

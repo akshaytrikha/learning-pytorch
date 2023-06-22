@@ -36,9 +36,11 @@ def train_step(
         y_logits = model(X_train.to(device))
 
         # calculate loss & accuracy
-        loss = loss_fn(y_logits, y_train)
-        train_loss += loss.detach().numpy()
-        train_accuracy += accuracy_fn(y_logits, y_train).detach().numpy()
+        loss = loss_fn(y_logits, y_train.to(device))
+        train_loss += loss.detach().cpu().numpy()
+        train_accuracy += (
+            accuracy_fn(y_logits.to("cpu"), y_train).detach().cpu().numpy()
+        )
 
         # clear optimizer accumulation
         optimizer.zero_grad()
@@ -87,9 +89,11 @@ def dev_step(
             y_logits = model(X_dev.to(device))
 
             # calculate loss & accuracy
-            loss = loss_fn(y_logits, y_dev)
-            dev_loss += loss.detach().numpy()
-            dev_accuracy += accuracy_fn(y_logits, y_dev).detach().numpy()
+            loss = loss_fn(y_logits, y_dev.to(device))
+            dev_loss += loss.detach().cpu().numpy()
+            dev_accuracy += (
+                accuracy_fn(y_logits.to("cpu"), y_dev).detach().cpu().numpy()
+            )
 
     # average loss & accuracy across batch
     dev_loss /= len(dataloader)

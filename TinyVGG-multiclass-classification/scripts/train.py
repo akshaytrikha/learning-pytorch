@@ -21,7 +21,15 @@ LEARNING_RATE = 0.001
 TRAIN_DIR = Path("./data/train")
 DEV_DIR = Path("./data/test")
 
-device = device = "cuda" if torch.cuda.is_available() else "cpu"
+if torch.cuda.is_available():
+    torch.cuda.init()
+    torch.cuda.empty_cache()
+    device = "cuda"
+elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+    # Apple Silicon
+    device = "mps"
+else:
+    device = "cpu"
 
 
 # ------------------ Data ------------------
